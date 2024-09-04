@@ -1,0 +1,11 @@
+{
+	"id": "obsidian-sql-lite",
+	"name": "Obsidian Sql Lite",
+	"version": "0.0.1",
+	"minAppVersion": "0.15.0",
+	"description": "Sync your notes to a sqlite database",
+	"author": "ShaneCodes",
+	"authorUrl": "https://obsidian.md",
+	"fundingUrl": "https://obsidian.md/pricing",
+	"isDesktopOnly": false
+}
