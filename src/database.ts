@@ -59,11 +59,11 @@ export class DatabaseManager {
         return result.rows as Note[];
     }
 
-    async updateNote(id: number, title: string, content: string): Promise<void> {
+    async updateNote(title: string, content: string): Promise<void> {
         const now = Date.now();
         await this.client.execute({
-            sql: 'UPDATE notes SET title = ?, content = ?, updated_at = ? WHERE id = ?',
-            args: [title, content, now, id]
+            sql: 'UPDATE notes SET title = ?, content = ?, updated_at = ? WHERE title = ?',
+            args: [title, content, now, title]
         });
     }
 

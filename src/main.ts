@@ -10,6 +10,22 @@ export default class SQLitePlugin extends Plugin {
 
     async onload() {
         await this.loadSettings();
+        await this.registerEvent(this.app.vault.on("create", async (data) => {
+            console.log("::CREATE Data", data.name)
+            const createdFile = this.app.vault.getFileByPath(data.path)
+            if (createdFile) {
+                const content = await this.app.vault.read(createdFile)
+                await this.db.addNote(createdFile.path, content)
+            }
+        }))
+        await this.registerEvent(this.app.vault.on("modify", async (data) => {
+            const createdFile = this.app.vault.getFileByPath(data.path)
+            console.log('Modify File')
+            if (createdFile) {
+                const content = await this.app.vault.read(createdFile)
+                const dbFile = await this.db.updateNote(createdFile.path, content)
+            }
+        }))
         this.addSettingTab(new SQLitePluginSettingTab(this.app, this));
         this.db = new DatabaseManager(
             this.app.vault.configDir,
