@@ -10,12 +10,25 @@ export default class SQLitePlugin extends Plugin {
 
     async onload() {
         await this.loadSettings();
-        await this.registerEvent(this.app.vault.on("create", async (data) => {
-            console.log("::CREATE Data", data.name)
+        await this.registerEvent(this.app.vault.on("rename", async (data, oldPath) => {
             const createdFile = this.app.vault.getFileByPath(data.path)
             if (createdFile) {
+                this.db.deleteNote(oldPath)
                 const content = await this.app.vault.read(createdFile)
-                await this.db.addNote(createdFile.path, content)
+                await this.db.addNote(data.path, content)
+            }
+        }))
+        await this.registerEvent(this.app.vault.on("create", async (data) => {
+            const createdFile = this.app.vault.getFileByPath(data.path)
+            if (createdFile) {
+                if (createdFile.path.includes("Untitled.md")) {
+                    return
+                }
+                const dbNote = this.db.getNote(createdFile?.path)
+                if (!dbNote) {
+                    const content = await this.app.vault.read(createdFile)
+                    await this.db.addNote(createdFile.path, content)
+                }
             }
         }))
         await this.registerEvent(this.app.vault.on("modify", async (data) => {
@@ -23,7 +36,12 @@ export default class SQLitePlugin extends Plugin {
             console.log('Modify File')
             if (createdFile) {
                 const content = await this.app.vault.read(createdFile)
-                const dbFile = await this.db.updateNote(createdFile.path, content)
+                const dbFile = await this.db.getNote(createdFile.path)
+                if (!dbFile) {
+                    await this.db.addNote(createdFile.path, content)
+                    return
+                }
+                await this.db.updateNote(createdFile.path, content)
             }
         }))
         this.addSettingTab(new SQLitePluginSettingTab(this.app, this));
@@ -36,10 +54,10 @@ export default class SQLitePlugin extends Plugin {
         );
         await this.db.initialize();
 
-        addIcon('sync-database', SYNC_ICON);
+        addIcon('pullFromRemote', SYNC_ICON);
 
-        this.addRibbonIcon('sync-database', 'Sync Database', async (evt: MouseEvent) => {
-            await this.syncDatabase();
+        this.addRibbonIcon('pullFromRemote', 'Pull Notes From Database', async (evt: MouseEvent) => {
+            await this.db.pullFromRemote(this.app.vault);
         });
 
         this.addCommand({
@@ -56,7 +74,7 @@ export default class SQLitePlugin extends Plugin {
     }
 
     onunload() {
-        this.db.close();
+        //todo: anything to do on unload, sync maybe?
     }
 
     async loadSettings() {

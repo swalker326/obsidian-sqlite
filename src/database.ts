@@ -1,9 +1,14 @@
+import { drizzle, LibSQLDatabase } from 'drizzle-orm/libsql';
+import { migrate } from "drizzle-orm/libsql/migrator";
 import { createClient } from '@libsql/client';
-import * as path from 'path';
-import { Note } from './types';
+import * as schema from "./db/schema"
+import { notesTable } from './db/schema';
+import { eq } from 'drizzle-orm';
+import { Vault } from 'obsidian';
 
 export class DatabaseManager {
     private client: ReturnType<typeof createClient>;
+    private db: LibSQLDatabase<typeof schema>
 
     constructor(
         private configDir: string,
@@ -14,7 +19,7 @@ export class DatabaseManager {
     ) { }
 
     async initialize() {
-        const localDbPath = path.join(this.configDir, this.localDbName);
+        // const localDbPath = path.join(this.configDir, this.localDbName);
 
         this.client = createClient({
             url: this.remoteDbUrl,
@@ -23,62 +28,72 @@ export class DatabaseManager {
             authToken: this.authToken,
             // syncInterval: this.syncInterval
         });
+        this.db = drizzle(this.client, { schema })
+        this.migrate()
 
-        // Create table if not exists
-        await this.client.execute(`
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT,
-                content TEXT,
-                created_at INTEGER,
-                updated_at INTEGER
-            )
-        `);
+        // TODO: Create table if not exists
+        // Will need to migrate maybe? not exactly sure how do do this.
+    }
+    async migrate() {
+        this.client.execute(`CREATE TABLE IF NOT EXISTS \`notes\` (\`path\` text PRIMARY KEY NOT NULL,\`content\` text NOT NULL,\`deleted\` integer DEFAULT false,\`createdAd\` integer,\`updatedAt\` integer);`)
+    }
+    async pullFromRemote(vault: Vault, force = false) {
+        if (force) {
+            //pull from the db and overwrite any conflicts with the version on remote
+        } else {
+            const notes = await this.db.query.notesTable.findMany()
+            const conflicts = []
+            for (const note of notes) {
+                const pathParts = note.path.split('/')
+                if (!vault.getFileByPath(note.path)) {
+                    if (pathParts.length > 1) {
+                        // create the directory
+                        await vault.createFolder(pathParts.slice(0, pathParts.length - 1).join('/'))
+                    }
+                    await vault.create(note.path, note.content)
+                } else {
+                    // note exists add a conflict
+                    conflicts.push(note)
+                }
+            }
+            return conflicts
+        }
     }
 
-    async addNote(title: string, content: string): Promise<number> {
-        const now = Date.now();
-        const result = await this.client.execute({
-            sql: 'INSERT INTO notes (title, content, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id',
-            args: [title, content, now, now]
-        });
-        return result.rows[0].id as number;
+    async addNote(path: string, content: string) {
+        const result = await this.db.insert(notesTable).values({
+            path,
+            content,
+            createdAt: new Date()
+        })
     }
 
-    async getNote(id: number): Promise<Note | undefined> {
-        const result = await this.client.execute({
-            sql: 'SELECT * FROM notes WHERE id = ?',
-            args: [id]
-        });
-        return result.rows[0] as Note | undefined;
+    async getNote(path: string) {
+        const [result] = await this.db.select().from(notesTable).where(eq(notesTable.path, path))
+        return result
     }
 
-    async getAllNotes(): Promise<Note[]> {
-        const result = await this.client.execute('SELECT * FROM notes');
-        console.log("::RESULT", result)
-        return result.rows as Note[];
+    async getAllNotes() {
+        const result = await this.db.select().from(notesTable)
+        return result
     }
 
-    async updateNote(title: string, content: string): Promise<void> {
-        const now = Date.now();
-        await this.client.execute({
-            sql: 'UPDATE notes SET title = ?, content = ?, updated_at = ? WHERE title = ?',
-            args: [title, content, now, title]
-        });
+    async updateNote(path: string, content: string) {
+        await this.db.update(notesTable).set({
+            content,
+            path,
+            updatedAt: new Date()
+        }).where(eq(notesTable.path, path))
     }
 
-    async deleteNote(id: number): Promise<void> {
-        await this.client.execute({
-            sql: 'DELETE FROM notes WHERE id = ?',
-            args: [id]
-        });
+    async deleteNote(path: string) {
+        await this.db.update(notesTable).set({ deleted: true }).where(eq(notesTable.path, path))
+    }
+    async hardDelete(path: string) {
+        await this.db.delete(notesTable).where(eq(notesTable.path, path))
     }
 
     async sync(): Promise<void> {
         await this.client.sync();
-    }
-
-    close() {
-        // No need to explicitly close the connection
     }
 }
